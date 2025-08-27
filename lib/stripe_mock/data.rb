@@ -11,6 +11,14 @@ module StripeMock
         display_name: "Stripe.com",
         timezone: "US/Pacific",
         details_submitted: false,
+        capabilities: {
+          bank_transfer_payments: "active",
+          card_payments: "active",
+          ideal_payments: "active",
+          sepa_bank_transfer_payments: "active",
+          sepa_debit_payments:"active",
+          transfers:"active"
+        },
         charges_enabled: false,
         payouts_enabled: false,
         currencies_supported: [
@@ -124,6 +132,25 @@ module StripeMock
         created: now,
         url: 'https://connect.stripe.com/express/Ln7FfnNpUcCU',
         data: {}
+      }.merge(params)
+    end
+
+    def self.mock_tax_id(params)
+      {
+        id: 'test_cus_default',
+        object: 'tax_id',
+        country: 'DE',
+        created: 1559079603,
+        customer: nil,
+        livemode: false,
+        type: 'eu_vat',
+        value: 'DE123456789',
+        verification: nil,
+        owner: {
+          type: 'self',
+          customer: nil
+        },
+        metadata: {}
       }.merge(params)
     end
 
@@ -408,7 +435,13 @@ module StripeMock
         cancel_at_period_end: false,
         canceled_at: nil,
         collection_method: 'charge_automatically',
+        cancellation_details: {
+          comment: nil,
+          feedback: nil,
+          reason: nil
+        },
         ended_at: nil,
+        schedule: nil,
         start_date: 1308595038,
         object: 'subscription',
         trial_start: 1308595038,
@@ -670,15 +703,18 @@ module StripeMock
         attributes:[],
         caption: nil,
         created: 1466698000,
+        default_price: nil,
         deactivate_on: [],
         description: nil,
         images: [],
+        marketing_features: [],
         livemode: false,
         metadata: {},
         name: "The Mock Product",
         package_dimensions: nil,
         shippable: nil,
         statement_descriptor: nil,
+        tax_code: nil,
         type: "service",
         unit_label: "my_unit",
         updated: 1537939442,
@@ -1442,7 +1478,7 @@ module StripeMock
         id: cs_id,
         object: 'checkout.session',
         billing_address_collection: nil,
-        cancel_url: 'https://example.com/cancel',
+        cancel_url: nil,
         client_reference_id: nil,
         customer: nil,
         customer_email: nil,
