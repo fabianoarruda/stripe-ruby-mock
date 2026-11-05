@@ -210,7 +210,7 @@ shared_examples 'Invoice API' do
     end
   end
 
-  context "retrieving upcoming invoice" do
+  context "retrieving upcoming invoice", skip: !Stripe::Invoice.respond_to?(:upcoming) && "Stripe::Invoice.upcoming was removed in stripe #{Stripe::VERSION}" do
     let(:customer)      { Stripe::Customer.create(source: stripe_helper.generate_card_token) }
     let(:coupon_amtoff) { stripe_helper.create_coupon(id: '100OFF', currency: 'usd', amount_off: 100_00, duration: 'repeating', duration_in_months: 6) }
     let(:coupon_pctoff) { stripe_helper.create_coupon(id: '50OFF', currency: 'usd', percent_off: 50, amount_off: nil, duration: 'repeating', duration_in_months: 6) }
@@ -700,6 +700,39 @@ shared_examples 'Invoice API' do
           expect(e.http_status).to eq(404)
           expect(e.message).to eq('No such subscription: sub_nonexistent')
         end
+      end
+
+      it 'derives the customer from the subscription', with_subscription: true do
+        preview = Stripe::Invoice.create_preview(subscription: subscription.id)
+
+        expect(preview.customer).to eq(customer.id)
+        expect(preview.subscription).to eq(subscription.id)
+        expect(preview.amount_due).to eq(50_00)
+      end
+
+      it 'fails with non-existent subscription and no customer' do
+        expect {
+          Stripe::Invoice.create_preview(subscription: 'sub_nonexistent')
+        }.to raise_error do |e|
+          expect(e).to be_a(Stripe::InvalidRequestError)
+          expect(e.http_status).to eq(404)
+          expect(e.message).to eq('No such subscription: sub_nonexistent')
+        end
+      end
+
+      it 'previews a plan change from subscription_details', with_subscription: true do
+        other_plan = stripe_helper.create_plan(id: 'preview_plan_100', product: product.id, amount: 100_00, interval: 'month', currency: 'usd')
+
+        preview = Stripe::Invoice.create_preview(
+          subscription: subscription.id,
+          subscription_details: {
+            items: [{ id: subscription.items.data.first.id, price: other_plan.id }],
+            proration_date: Time.now.to_i
+          }
+        )
+
+        expect(preview.subscription).to eq(subscription.id)
+        expect(preview.lines.data.map(&:description)).to include('Unused time', 'Remaining time')
       end
     end
 

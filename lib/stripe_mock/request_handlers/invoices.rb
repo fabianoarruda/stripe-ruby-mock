@@ -174,7 +174,20 @@ module StripeMock
       def create_preview_invoice(route, method_url, params, headers = {})
         stripe_account = headers && headers[:stripe_account] || Stripe.api_key
         route =~ method_url
-        
+
+        # stripe-ruby 14+ sends subscription changes under subscription_details. The
+        # upcoming handler already does the prorations, so map the params and reuse it.
+        if params[:subscription_details]
+          return upcoming_invoice(route, method_url, upcoming_params_from_preview(params), headers)
+        end
+
+        # like the real API, the customer can be left out when a subscription is given
+        if params[:customer].nil? && params[:subscription]
+          subscription = subscriptions[params[:subscription]]
+          raise Stripe::InvalidRequestError.new("No such subscription: #{params[:subscription]}", nil, http_status: 404) unless subscription
+          params[:customer] = subscription[:customer]
+        end
+
         # Validate required parameters
         raise Stripe::InvalidRequestError.new('Missing required param: customer', nil, http_status: 400) if params[:customer].nil?
         
@@ -265,6 +278,21 @@ module StripeMock
       end
 
       private
+
+      def upcoming_params_from_preview(params)
+        details = params[:subscription_details]
+        item = Array(details[:items]).first || {}
+        legacy = params.except(:subscription_details, :discounts)
+        # the upcoming handler finds the subscription under the customer, so let it
+        # derive the customer from the subscription instead
+        legacy.delete(:customer) if legacy[:subscription]
+        legacy.merge(
+          subscription_plan: item[:price] || item[:plan],
+          subscription_quantity: item[:quantity],
+          subscription_proration_date: details[:proration_date],
+          subscription_trial_end: details[:trial_end]
+        ).compact
+      end
 
       def get_mock_subscription_line_item(subscription)
         plan_amount = subscription[:plan][:amount] || subscription[:plan][:unit_amount]
