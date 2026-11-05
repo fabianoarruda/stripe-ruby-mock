@@ -210,6 +210,40 @@ shared_examples 'Invoice API' do
     end
   end
 
+  context "creating a preview invoice" do
+    let(:customer)     { Stripe::Customer.create(source: stripe_helper.generate_card_token) }
+    let(:product)      { stripe_helper.create_product(id: "prod_preview") }
+    let(:plan)         { stripe_helper.create_plan(id: 'preview_50m', product: product.id, amount: 50_00, interval: 'month', currency: 'usd') }
+    let(:other_plan)   { stripe_helper.create_plan(id: 'preview_100m', product: product.id, amount: 100_00, interval: 'month', currency: 'usd') }
+    let!(:subscription) { Stripe::Subscription.create(plan: plan.id, customer: customer.id) }
+
+    it "previews the next invoice by customer or subscription" do
+      by_customer = Stripe::Invoice.create_preview(customer: customer.id)
+      by_subscription = Stripe::Invoice.create_preview(subscription: subscription.id)
+
+      expect(by_customer.amount_due).to eq 50_00
+      expect(by_subscription.subscription).to eq subscription.id
+      expect(by_subscription.customer).to eq customer.id
+    end
+
+    it "previews a plan change from subscription_details" do
+      preview = Stripe::Invoice.create_preview(
+        subscription: subscription.id,
+        subscription_details: {
+          items: [{ id: subscription.items.data.first.id, price: other_plan.id }],
+          proration_date: Time.now.to_i
+        }
+      )
+
+      expect(preview.lines.data.map(&:description)).to include('Unused time', 'Remaining time')
+    end
+
+    it "raises when the customer has no subscription" do
+      other = Stripe::Customer.create
+      expect { Stripe::Invoice.create_preview(customer: other.id) }.to raise_error(Stripe::InvalidRequestError, /No upcoming invoices/)
+    end
+  end
+
   context "retrieving upcoming invoice" do
     let(:customer)      { Stripe::Customer.create(source: stripe_helper.generate_card_token) }
     let(:coupon_amtoff) { stripe_helper.create_coupon(id: '100OFF', currency: 'usd', amount_off: 100_00, duration: 'repeating', duration_in_months: 6) }

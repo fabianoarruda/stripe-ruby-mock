@@ -5,6 +5,7 @@ module StripeMock
       def Invoices.included(klass)
         klass.add_handler 'post /v1/invoices',               :new_invoice
         klass.add_handler 'get /v1/invoices/upcoming',       :upcoming_invoice
+        klass.add_handler 'post /v1/invoices/create_preview', :create_preview_invoice
         klass.add_handler 'get /v1/invoices/(.*)/lines',     :get_invoice_line_items
         klass.add_handler 'get /v1/invoices/((?!search).*)', :get_invoice
         klass.add_handler 'get /v1/invoices/search',         :search_invoices
@@ -68,6 +69,24 @@ module StripeMock
           :attempted => true,
           :charge => charge[:id],
         )
+      end
+
+      # Invoice.create_preview replaced Invoice.upcoming (stripe-ruby 14). Map the
+      # new params onto the old ones and reuse the upcoming handler.
+      def create_preview_invoice(route, method_url, params, headers = {})
+        details = params[:subscription_details] || {}
+        item = Array(details[:items]).first || {}
+        legacy = params.except(:subscription_details, :discounts)
+        # the upcoming handler looks the subscription up under the customer, so let it
+        # derive the customer from the subscription instead
+        legacy.delete(:customer) if legacy[:subscription]
+        legacy = legacy.merge(
+          subscription_plan: item[:price] || item[:plan],
+          subscription_quantity: item[:quantity],
+          subscription_proration_date: details[:proration_date],
+          subscription_trial_end: details[:trial_end]
+        ).compact
+        upcoming_invoice(route, method_url, legacy, headers)
       end
 
       def upcoming_invoice(route, method_url, params, headers = {})
