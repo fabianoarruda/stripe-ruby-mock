@@ -201,6 +201,14 @@ shared_examples 'Customer Subscriptions with plans' do
       expect(subscriptions.data.first.discount.coupon.id).to eq(coupon.id)
     end
 
+    it 'applies a coupon passed in discounts' do
+      coupon = stripe_helper.create_coupon(id: 'discounts_coupon', duration: 'repeating', duration_in_months: 3)
+      customer = Stripe::Customer.create(source: gen_card_tk)
+      subscription = Stripe::Subscription.create(plan: plan.id, customer: customer.id, discounts: [{ coupon: coupon.id }])
+
+      expect(subscription.discount.coupon.id).to eq(coupon.id)
+    end
+
     it 'when coupon is not exist', live: true do
       customer = Stripe::Customer.create(source: gen_card_tk)
 
@@ -984,6 +992,18 @@ shared_examples 'Customer Subscriptions with plans' do
       subscription.coupon = nil
       subscription.save
 
+      expect(subscription.discount).to be_nil
+    end
+
+    it 'sets and clears the coupon through discounts' do
+      customer = Stripe::Customer.create(source: gen_card_tk, plan: plan.id)
+      coupon = stripe_helper.create_coupon
+      subscription_id = customer.subscriptions.data.first.id
+
+      subscription = Stripe::Subscription.update(subscription_id, discounts: [{ coupon: coupon.id }])
+      expect(subscription.discount.coupon.id).to eq(coupon.id)
+
+      subscription = Stripe::Subscription.update(subscription_id, discounts: '')
       expect(subscription.discount).to be_nil
     end
 

@@ -88,6 +88,7 @@ module StripeMock
 
       def create_subscription(route, method_url, params, headers)
         stripe_account = headers && headers[:stripe_account] || Stripe.api_key
+        coupon_from_discounts!(params)
         if headers && headers[:idempotency_key]
           if subscriptions.any?
             original_subscription = subscriptions.values.find { |c| c[:idempotency_key] == headers[:idempotency_key]}
@@ -174,6 +175,7 @@ module StripeMock
 
         if (s = params[:expand]&.find { |s| s.start_with? 'latest_invoice' })
           payment_intent = nil
+          intent = nil
           unless subscription[:status] == 'trialing'
             intent_status = subscription[:status] == 'incomplete' ? 'requires_payment_method' : 'succeeded'
             intent = Data.mock_payment_intent({
@@ -181,9 +183,13 @@ module StripeMock
               amount: subscription[:plan][:amount],
               currency: subscription[:plan][:currency]
             })
-            payment_intent = s.include?('latest_invoice.payment_intent') ? intent : intent.id
+            payment_intent = s.include?('latest_invoice.payment_intent') ? intent : intent[:id]
           end
           invoice = Data.mock_invoice([], { payment_intent: payment_intent })
+          # API 2025-03-31.basil moved the Payment Element secret to invoice.confirmation_secret
+          if intent && params[:expand].include?('latest_invoice.confirmation_secret')
+            invoice[:confirmation_secret] = { client_secret: "#{intent[:id]}_secret_mock", type: 'payment_intent' }
+          end
           subscription[:latest_invoice] = invoice
         end
 
@@ -226,6 +232,7 @@ module StripeMock
       def update_subscription(route, method_url, params, headers)
         stripe_account = headers && headers[:stripe_account] || Stripe.api_key
         route =~ method_url
+        coupon_from_discounts!(params)
 
         if params[:billing_cycle_anchor] == 'now'
           params[:billing_cycle_anchor] = Time.now.utc.to_i
@@ -357,6 +364,16 @@ module StripeMock
       end
 
       private
+
+      # discounts replaced the coupon param in API 2025-03-31.basil. Map the first coupon
+      # onto the coupon handling, an empty string clears it like coupon: '' does.
+      def coupon_from_discounts!(params)
+        return unless params.key?(:discounts)
+
+        discounts = params.delete(:discounts)
+        coupon = discounts.is_a?(Array) ? discounts.first.to_h[:coupon] : discounts
+        params[:coupon] = coupon unless coupon.nil?
+      end
 
       def get_subscription_plans_from_params(params)
         plan_ids = if params[:plan]
